@@ -151,8 +151,8 @@ export async function GET() {
     // 初始化最终数据结构
     let marketData = {
         ...priceData, // 展开 ethPrice, tiaPrice, source
-        ethBaseFee: 15000000000, // 默认 15 gwei
-        blobMarketPrice: 1,
+        ethBaseFee: 15000000000, // 默认 15 gwei (wei 单位)
+        blobMarketPrice: 1000000000, // 默认 1 gwei (wei 单位)
         tiaGasPrice: 0.004,
         lastUpdated: new Date().toISOString(),
     };
@@ -181,6 +181,72 @@ export async function GET() {
         console.error("Server: ETH RPC failed", e);
     }
 
+    // 2.5 获取 Blob Base Fee (实时价格)
+    try {
+        console.log('📊 Fetching blob base fee...');
+
+        // 方法1: 尝试直接获取 blobBaseFee (某些 RPC 支持)
+        const blobFeeRes = await fetch('https://eth.llamarpc.com', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                jsonrpc: "2.0",
+                id: 2,
+                method: "eth_blobBaseFee",
+                params: []
+            }),
+            signal: AbortSignal.timeout(3000)
+        });
+
+        if (blobFeeRes.ok) {
+            const blobJson = await blobFeeRes.json();
+            console.log(blobJson);
+            if (blobJson.result) {
+                const blobBaseFeeWei = parseInt(blobJson.result, 16);
+                marketData.blobMarketPrice = blobBaseFeeWei; // 保持 wei 单位
+                console.log(`   ✅ Blob base fee: ${blobBaseFeeWei} wei (${(blobBaseFeeWei / 1e9).toFixed(2)} gwei)`);
+            }
+            else {
+                console.log(`   ⚠️ Blob base fee not found`);
+            }
+        } else {
+            // 方法2: 从区块头计算 blob base fee (fallback)
+            // 通过 excessBlobGas 计算（EIP-4844 公式）
+            const blockRes = await fetch('https://eth.llamarpc.com', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    jsonrpc: "2.0",
+                    id: 3,
+                    method: "eth_getBlockByNumber",
+                    params: ["latest", false]
+                }),
+                signal: AbortSignal.timeout(3000)
+            });
+
+            if (blockRes.ok) {
+                const blockJson = await blockRes.json();
+                if (blockJson.result?.excessBlobGas) {
+                    console.log(blockJson.result);
+                    // EIP-4844 blob base fee 计算公式:
+                    // blob_base_fee = MIN_BLOB_BASE_FEE * e^(excess_blob_gas / BLOB_BASE_FEE_UPDATE_FRACTION)
+                    const MIN_BLOB_BASE_FEE = 1; // wei
+                    const BLOB_BASE_FEE_UPDATE_FRACTION = 3338477;
+                    const excessBlobGas = parseInt(blockJson.result.excessBlobGas, 16);
+
+                    const blobBaseFeeWei = Math.floor(
+                        MIN_BLOB_BASE_FEE * Math.exp(excessBlobGas / BLOB_BASE_FEE_UPDATE_FRACTION)
+                    );
+                    marketData.blobMarketPrice = blobBaseFeeWei; // 保持 wei 单位
+                    console.log(`   ✅ Blob base fee (calculated): ${blobBaseFeeWei} wei (${(blobBaseFeeWei / 1e9).toFixed(2)} gwei)`);
+                }
+            }
+        }
+    } catch (e) {
+        console.error("Server: Blob fee fetch failed, using default", e);
+        // 保持默认值 1 gwei (已在初始化中设置)
+    }
+
     // 3. 获取 Celestia Gas
     try {
         const celestiaRes = await fetch('https://api-mainnet.celenium.io/v1/gas/price', {
@@ -188,21 +254,28 @@ export async function GET() {
         });
         if (celestiaRes.ok) {
             const celestiaJson = await celestiaRes.json();
-            marketData.tiaGasPrice = parseFloat(celestiaJson.slow || celestiaJson.median || '0.004');
+            const parsedGasPrice = parseFloat(celestiaJson.slow || celestiaJson.median || '0.004');
+            // 防止 NaN，确保使用有效默认值
+            marketData.tiaGasPrice = isNaN(parsedGasPrice) ? 0.004 : parsedGasPrice;
         }
     } catch (e) {
         console.error("Server: Celestia API failed", e);
+        // 发生异常时也要确保有默认值
+        marketData.tiaGasPrice = 0.004;
     }
+
+
+    console.log(marketData);
 
     // 返回最终数据
     return NextResponse.json(marketData, {
         status: 200,
         headers: {
             // public: 允许任何人缓存
-            // max-age=120: 告诉浏览器，120秒内别再请求这个接口了，直接用本地的！
-            // s-maxage=120: 告诉 Vercel 的 CDN 服务器缓存 120秒
+            // max-age=60: 告诉浏览器，60秒内别再请求这个接口了，直接用本地的！
+            // s-maxage=60: 告诉 Vercel 的 CDN 服务器缓存 60秒
             // stale-while-revalidate=59: 允许稍微过期一点点的数据先显示，后台偷偷更新
-            'Cache-Control': 'public, max-age=120, s-maxage=120, stale-while-revalidate=59',
+            'Cache-Control': 'public, max-age=60, s-maxage=60, stale-while-revalidate=59',
         },
     });
 }

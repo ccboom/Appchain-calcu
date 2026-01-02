@@ -4,7 +4,8 @@
 
 一个基于 Web 的计算器,帮助项目创始人和加密货币投资者理解从传统以太坊 L2 迁移到基于 Celestia 的 Appchain 的财务收益。
 
-![项目状态](https://img.shields.io/badge/状态-运行中-success)
+![版本](https://img.shields.io/badge/版本-0.1.0--beta-orange)
+![项目状态](https://img.shields.io/badge/状态-测试版-yellow)
 ![Next.js](https://img.shields.io/badge/Next.js-14-black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue)
 ![Tailwind](https://img.shields.io/badge/Tailwind-3-38bdf8)
@@ -71,7 +72,7 @@ BLOB_UTILIZATION_RATE = 0.9         // 90% 打包效率
 #### Celestia DA
 ```typescript
 CELESTIA_SHARE_SIZE = 500           // 每个 share 的字节数 (扣除命名空间开销)
-CELESTIA_GAS_PER_SHARE = 80         // 每个 share 的 Gas 单位
+CELESTIA_GAS_PER_SHARE = 4096       // 每个 share 的 Gas 单位 (8 gas/byte × 512 bytes)
 CELESTIA_FIXED_GAS = 65,000         // 固定 Gas 开销
 ```
 
@@ -165,8 +166,12 @@ Celestia成本USD年度 = Celestia成本TIA每日 × TIA价格 × 365
 **L2 场景:**
 ```
 L2收入 = 年度Gas收入
-L2结算成本 = 年度Gas收入 × 0.2    // 20% L1 结算成本
-L2总成本 = L2结算成本 + 以太坊成本USD年度
+L1每批次Gas = 50,000                // L1 上每批次消耗的 Gas
+每批次交易数 = 100                   // 每批次打包的交易数
+每日批次数 = 日交易笔数 / 每批次交易数
+L1结算成本USD年度 = (每日批次数 × L1每批次Gas × 以太坊基础费用 / 10^18) × ETH价格 × 365
+Blob_Calldata成本 = Blob数量 × 2000 × 以太坊基础费用 / 10^18 × ETH价格 × 365
+L2总成本 = L1结算成本USD年度 + 以太坊成本USD年度 + Blob_Calldata成本
 L2利润 = L2收入 - L2总成本
 ```
 
@@ -256,23 +261,42 @@ celesita-chain/
 
 ## 🔍 关键假设
 
-1. **L2 结算成本**: 20% 的 Gas 收入用于 L1 结算/验证
-2. **Appchain 收入**: 100% 的 Gas 费用 + MEV (如果捕获) 归项目方所有
-3. **MEV 捕获**: 仅在 Appchain 模式下可用 (完全控制排序)
-4. **市场价格**: 实时数据来自多个来源 (Binance, OKX, Gate.io, KuCoin, CoinCap)
-5. **Blob 利用率**: 90% 打包效率 (blob 很少能 100% 填满)
-6. **EIP-7918**: 保留价格确保 blob 成本至少为 BLOB_BASE_COST 执行 gas
+1. **L2 结算成本**: 基于真实的批次上链成本 (每批次 50,000 gas, 每批次 100 笔交易)
+2. **Blob Calldata 开销**: 每个 Blob 在 L1 上发布承诺需要 2,000 gas
+3. **Appchain 收入**: 100% 的 Gas 费用 + MEV (如果捕获) 归项目方所有
+4. **MEV 捕获**: 仅在 Appchain 模式下可用 (完全控制排序)
+5. **市场价格**: 实时数据来自多个来源 (Binance, OKX, Gate.io, KuCoin, CoinCap)
+6. **Blob 利用率**: 90% 打包效率 (blob 很少能 100% 填满)
+7. **EIP-7918**: 保留价格确保 blob 成本至少为 BLOB_BASE_COST 执行 gas
 
-## ✨ 最近更新
+## 📋 版本历史
 
-- ✅ 实时市场数据 API,支持多源降级
-- ✅ 每日/每年成本视图切换
-- ✅ 带 GIF 背景的加载动画
-- ✅ 更新收入公式 (20% L1 结算成本)
-- ✅ 90% blob 利用率
-- ✅ 符合 EIP-7918 的保留价格计算
-- ✅ 高数据量预设场景
-- ✅ 社区页脚和社交链接
+### v0.1.0-beta (2026-01-02) - 当前版本
+
+**🔧 关键 Bug 修复:**
+- 修复 `blobMarketPrice` 单位不一致问题 (wei 和 gwei 混用,导致成本低估 10 亿倍)
+- 修复 Reserve Price 计算,确保使用一致的 wei 单位
+- 修复 Celestia Gas Price 的 NaN 保护,添加正确的 fallback
+- 修复前端 Blob Base Fee 显示转换
+
+**🎯 计算改进:**
+- 将简化的 L2 结算成本 (收入的 20%) 替换为**真实的批次上链模型**
+  - L1 上每批次 50,000 gas
+  - 每批次 100 笔交易
+  - 基于实际以太坊 base fee 计算
+- 添加 **Blob Calldata 开销** (每个 Blob 在 L1 发布承诺需要 2,000 gas)
+- 更新 `CELESTIA_GAS_PER_SHARE` 从 80 改为 **4096** (8 gas/byte × 512 bytes)
+
+**✨ 功能特性:**
+- 实时市场数据 API,支持多源降级 (Binance → OKX → Gate.io → KuCoin → CoinCap)
+- 每日/每年成本视图切换
+- 带 GIF 背景的加载动画
+- 90% blob 利用率,更真实的成本建模
+- 符合 EIP-7918 的保留价格计算
+- 社区页脚和社交链接
+
+**🧪 测试版说明:**
+这是用于测试和反馈的测试版本。计算公式已经过全面审查,并与真实的 L2/Appchain 经济模型对齐。如遇到任何问题请及时反馈。
 
 ## 🚧 未来增强
 

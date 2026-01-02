@@ -81,12 +81,20 @@ export function calculateAppchainEconomics(inputs: CalculationInputs): Calculati
     const blobCount = Math.ceil(totalDataBytes / (BLOB_SIZE_BYTES * BLOB_UTILIZATION_RATE));
     const ethCostWeiDaily = BigInt(Math.floor(blobCount)) * BigInt(Math.floor(GAS_PER_BLOB)) * BigInt(Math.floor(effectiveBlobPrice));
     const ethCostEthDaily = Number(ethCostWeiDaily) / 1e18;
-    const ethCostUsdAnnual = ethCostEthDaily * marketData.ethPrice * annualizer;
+
+    // 补充 Blob Calldata 开销：L2 在 L1 发布 Blob Commitment 时的 Calldata Gas 成本
+    const BLOB_COMMITMENT_CALLDATA_GAS = 2000; // 每个 Blob 的 Calldata Gas 开销
+    const blobCalldataCostWeiDaily = BigInt(Math.floor(blobCount)) * BigInt(BLOB_COMMITMENT_CALLDATA_GAS) * BigInt(Math.floor(safeEthBaseFee));
+    const blobCalldataCostEthDaily = Number(blobCalldataCostWeiDaily) / 1e18;
+    const blobCalldataCostUsdAnnual = blobCalldataCostEthDaily * marketData.ethPrice * annualizer;
+
+    const ethCostUsdAnnual = ethCostEthDaily * marketData.ethPrice * annualizer + blobCalldataCostUsdAnnual;
 
     console.log('Blob Count:', blobCount);
     console.log('ETH Cost (wei) Daily:', ethCostWeiDaily.toString());
     console.log('ETH Cost (ETH) Daily:', ethCostEthDaily);
-    console.log('ETH Cost (USD) Annual:', ethCostUsdAnnual);
+    console.log('Blob Calldata Cost (USD) Annual:', blobCalldataCostUsdAnnual);
+    console.log('ETH Cost (USD) Annual (Total):', ethCostUsdAnnual);
     console.log('===================================');
 
     // Celestia Appchain Cost (DA)
@@ -103,10 +111,18 @@ export function calculateAppchainEconomics(inputs: CalculationInputs): Calculati
     // L2 Scenario
     // L2 场景:通常无法捕获 MEV(被排序器拿走),且需支付 L1 结算费
     // L2收入 = 年度Gas收入
-    // L2支出 = (年度Gas收入 × 0.2) + 以太坊成本USD年度  // 0.2 为 L1 结算验证成本
+    // L2支出 = L1 结算成本 + Blob DA 成本
     const l2Revenue = annualGasRevenue;
-    const l2SettlementCost = annualGasRevenue * 0.2; // L1结算验证成本
-    const l2TotalCost = l2SettlementCost + ethCostUsdAnnual;
+
+    // 真实的 L1 结算成本计算: 每批次消耗的 Gas × 批次数量
+    const L1_GAS_PER_BATCH = 50000; // 每批次在 L1 上的 Gas 消耗（状态根更新 + 证明验证）
+    const TX_PER_BATCH = 100; // 每批次打包的交易数（典型值）
+    const batchesDaily = dailyTx / TX_PER_BATCH;
+    const l1SettlementCostWeiDaily = BigInt(Math.floor(batchesDaily)) * BigInt(L1_GAS_PER_BATCH) * BigInt(Math.floor(safeEthBaseFee));
+    const l1SettlementCostEthDaily = Number(l1SettlementCostWeiDaily) / 1e18;
+    const l1SettlementCostUsdAnnual = l1SettlementCostEthDaily * marketData.ethPrice * annualizer;
+
+    const l2TotalCost = l1SettlementCostUsdAnnual + ethCostUsdAnnual;
     const l2Profit = l2Revenue - l2TotalCost;
 
     // Appchain Scenario
@@ -123,7 +139,7 @@ export function calculateAppchainEconomics(inputs: CalculationInputs): Calculati
         l2: {
             revenue: l2Revenue,
             costDA: ethCostUsdAnnual,
-            costExecution: l2SettlementCost,
+            costExecution: l1SettlementCostUsdAnnual,
             totalCost: l2TotalCost,
             profit: l2Profit
         },

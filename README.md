@@ -4,7 +4,8 @@
 
 A web-based calculator that helps project founders and crypto investors understand the financial benefits of migrating from traditional Ethereum L2 to a Celestia-based Appchain.
 
-![Project Status](https://img.shields.io/badge/status-active-success)
+![Version](https://img.shields.io/badge/version-0.1.0--beta-orange)
+![Project Status](https://img.shields.io/badge/status-beta-yellow)
 ![Next.js](https://img.shields.io/badge/Next.js-14-black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue)
 ![Tailwind](https://img.shields.io/badge/Tailwind-3-38bdf8)
@@ -71,7 +72,7 @@ BLOB_UTILIZATION_RATE = 0.9         // 90% packing efficiency
 #### Celestia DA
 ```typescript
 CELESTIA_SHARE_SIZE = 500           // Bytes per share (after namespace overhead)
-CELESTIA_GAS_PER_SHARE = 80         // Gas units per share
+CELESTIA_GAS_PER_SHARE = 4096       // Gas units per share (8 gas/byte × 512 bytes)
 CELESTIA_FIXED_GAS = 65,000         // Fixed gas overhead
 ```
 
@@ -165,8 +166,12 @@ Annual_MEV_Revenue = Tx_Daily × Avg_Tx_Value × MEV_Rate × 365
 **L2 Scenario:**
 ```
 L2_Revenue = Annual_Gas_Revenue
-L2_Settlement_Cost = Annual_Gas_Revenue × 0.2    // 20% L1 settlement cost
-L2_Total_Cost = L2_Settlement_Cost + Eth_Cost_USD_Annual
+L1_Gas_Per_Batch = 50,000           // Gas consumed per batch on L1
+Tx_Per_Batch = 100                  // Transactions per batch
+Batches_Daily = Tx_Daily / Tx_Per_Batch
+L1_Settlement_Cost_USD_Annual = (Batches_Daily × L1_Gas_Per_Batch × Eth_Base_Fee / 10^18) × Eth_Price × 365
+Blob_Calldata_Cost = Blob_Count × 2000 × Eth_Base_Fee / 10^18 × Eth_Price × 365
+L2_Total_Cost = L1_Settlement_Cost_USD_Annual + Eth_Cost_USD_Annual + Blob_Calldata_Cost
 L2_Profit = L2_Revenue - L2_Total_Cost
 ```
 
@@ -256,23 +261,42 @@ celesita-chain/
 
 ## 🔍 Key Assumptions
 
-1. **L2 Settlement Cost**: 20% of gas revenue goes to L1 settlement/verification
-2. **Appchain Revenue**: 100% of gas fees + MEV (if captured) goes to the project
-3. **MEV Capture**: Only available in Appchain mode (full control over sequencing)
-4. **Market Prices**: Real-time data from multiple sources (Binance, OKX, Gate.io, KuCoin, CoinCap)
-5. **Blob Utilization**: 90% packing efficiency (blobs rarely 100% full)
-6. **EIP-7918**: Reserve price ensures blob cost is at least BLOB_BASE_COST execution gas
+1. **L2 Settlement Cost**: Based on actual batch posting costs (50,000 gas per batch, 100 txs per batch)
+2. **Blob Calldata Overhead**: 2,000 gas per blob for commitment posting on L1
+3. **Appchain Revenue**: 100% of gas fees + MEV (if captured) goes to the project
+4. **MEV Capture**: Only available in Appchain mode (full control over sequencing)
+5. **Market Prices**: Real-time data from multiple sources (Binance, OKX, Gate.io, KuCoin, CoinCap)
+6. **Blob Utilization**: 90% packing efficiency (blobs rarely 100% full)
+7. **EIP-7918**: Reserve price ensures blob cost is at least BLOB_BASE_COST execution gas
 
-## ✨ Recent Updates
+## 📋 Version History
 
-- ✅ Real-time market data API with multi-source fallback
-- ✅ Daily/Annual cost view toggle
-- ✅ Animated loading screen with GIF background
-- ✅ Updated revenue formula (20% L1 settlement cost)
-- ✅ 90% blob utilization rate
-- ✅ EIP-7918 compliant reserve price calculation
-- ✅ High Data Volume preset scenario
-- ✅ Community footer with social links
+### v0.1.0-beta (2026-01-02) - Current Release
+
+**🔧 Critical Bug Fixes:**
+- Fixed `blobMarketPrice` unit inconsistency (was mixing wei and gwei, causing 1B× cost underestimation)
+- Fixed Reserve Price calculation to use consistent wei units
+- Fixed Celestia Gas Price NaN protection with proper fallback
+- Fixed frontend Blob Base Fee display conversion
+
+**🎯 Calculation Improvements:**
+- Replaced simplified L2 settlement cost (20% revenue) with **real batch posting model**
+  - 50,000 gas per batch on L1
+  - 100 transactions per batch
+  - Calculated based on actual Ethereum base fee
+- Added **Blob Calldata overhead** (2,000 gas per blob for commitment posting)
+- Updated `CELESTIA_GAS_PER_SHARE` from 80 to **4096** (8 gas/byte × 512 bytes)
+
+**✨ Features:**
+- Real-time market data API with multi-source fallback (Binance → OKX → Gate.io → KuCoin → CoinCap)
+- Daily/Annual cost view toggle
+- Animated loading screen with GIF background
+- 90% blob utilization rate for realistic cost modeling
+- EIP-7918 compliant reserve price calculation
+- Community footer with social links
+
+**🧪 Beta Notice:**
+This is a beta release for testing and feedback. Calculation formulas have been thoroughly reviewed and aligned with real-world L2/Appchain economics. Please report any issues you encounter.
 
 ## 🚧 Future Enhancements
 

@@ -8,7 +8,7 @@ export const BLOB_UTILIZATION_RATE = 0.9; // Blob 打包效率系数 (实际很�
 export const L1_EXECUTION_GAS_PER_TX = 50000; // 单笔交易 Gas (21000基础费 + 状态根更新)
 
 export const CELESTIA_SHARE_SIZE = 500;// 扣除 Namespace 等头部开销后的有效载荷
-export const CELESTIA_GAS_PER_SHARE = 80;
+export const CELESTIA_GAS_PER_SHARE = 4096; // 512 bytes/share * 8 gas/byte
 export const CELESTIA_FIXED_GAS = 65000;
 
 // 预设场景

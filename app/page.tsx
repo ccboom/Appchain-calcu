@@ -11,12 +11,47 @@ const DEFAULT_MARKET_DATA: MarketData = {
     ethPrice: 3500,
     tiaPrice: 0.4,
     ethBaseFee: 15000000000,
-    blobMarketPrice: 1,
+    blobMarketPrice: 1000000000, // 1 gwei (wei 单位)
     tiaGasPrice: 0.004,
 };
 
-// 格式化Gwei
-const formatGwei = (wei: number) => (Number(wei) / 1e9).toFixed(2);
+// 智能格式化数字：确保至少显示两位非零数字
+const formatSmartNumber = (value: number, minSignificant = 2): string => {
+    if (value === 0) return '0';
+
+    const absValue = Math.abs(value);
+
+    // 对于大于等于 1 的数，显示合理的小数位
+    if (absValue >= 1) {
+        // 如果是整数或接近整数，最多显示 2 位小数
+        if (absValue >= 100) return value.toFixed(0);
+        if (absValue >= 10) return value.toFixed(1);
+        return value.toFixed(2);
+    }
+
+    // 对于小于 1 的数，找到第一个非零数字的位置
+    // 例如 0.004 → 需要显示到小数点后3位才能看到两位非零数字
+    const str = absValue.toString();
+    const decimalPart = str.split('.')[1] || '';
+
+    // 找到第一个非零数字的索引
+    let firstNonZeroIndex = -1;
+    for (let i = 0; i < decimalPart.length; i++) {
+        if (decimalPart[i] !== '0') {
+            firstNonZeroIndex = i;
+            break;
+        }
+    }
+
+    if (firstNonZeroIndex === -1) return value.toFixed(2);
+
+    // 计算需要的小数位数：前导零 + minSignificant 位有效数字
+    const decimals = firstNonZeroIndex + minSignificant;
+    return value.toFixed(Math.min(decimals, 8)); // 最多 8 位小数
+};
+
+// 格式化Gwei（使用智能格式化）
+const formatGwei = (wei: number) => formatSmartNumber(Number(wei) / 1e9);
 
 export default function Home() {
     // 市场数据
@@ -31,6 +66,7 @@ export default function Home() {
     const [mevRate, setMevRate] = useState(PRESETS.pancake.mevRate);
     const [avgTxValue, setAvgTxValue] = useState(PRESETS.pancake.avgTxValue);
     const [captureMev, setCaptureMev] = useState(true);
+    const [customEthBaseFee, setCustomEthBaseFee] = useState<number>(0); // 0 means use market data
     const [currentPresetId, setCurrentPresetId] = useState('pancake');
     const [timeframe, setTimeframe] = useState<'daily' | 'annual'>('annual'); // 日/年切换
 
@@ -47,10 +83,15 @@ export default function Home() {
                 console.log('ETH Price:', data.ethPrice);
                 console.log('TIA Price:', data.tiaPrice);
                 console.log('ETH Base Fee:', data.ethBaseFee, 'wei');
+                console.log('Blob Base Fee:', data.blobMarketPrice, 'wei');
                 console.log('TIA Gas Price:', data.tiaGasPrice, 'utia');
                 console.log('Last Updated:', data.lastUpdated);
                 console.log('===========================');
                 setMarketData(data);
+                // Initialize custom base fee with fetched value (converted to Gwei for slider)
+                if (initialLoading) {
+                    setCustomEthBaseFee(Number((data.ethBaseFee / 1e9).toFixed(2)));
+                }
             }
         } catch (e) {
             console.error("Failed to fetch market data", e);
@@ -82,10 +123,15 @@ export default function Home() {
             dataSizePerTxKB: dataSize,
             mevRate,
             avgTxValue,
-            marketData,
-            captureMev
+
+            captureMev,
+            marketData: {
+                ...marketData,
+                // Override ethBaseFee if custom value is set (convert Gwei back to Wei)
+                ethBaseFee: customEthBaseFee ? customEthBaseFee * 1e9 : marketData.ethBaseFee
+            }
         });
-    }, [dailyTx, gasPrice, dataSize, mevRate, avgTxValue, marketData, captureMev]);
+    }, [dailyTx, gasPrice, dataSize, mevRate, avgTxValue, marketData, captureMev, customEthBaseFee]);
 
     // 图表数据 - 支持日/年切换
     const divisor = timeframe === 'daily' ? 365 : 1; // 每日除以365,每年保持不变
@@ -164,15 +210,21 @@ export default function Home() {
                 </header>
 
                 {/* Market Ticker */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-8">
                     <TickerItem icon="Ξ" color="text-amber-500" label="ETH Price" value={`$${marketData.ethPrice.toLocaleString()}`} />
-                    <TickerItem icon="T" color="text-orange-500" label="TIA Price" value={`$${marketData.tiaPrice.toFixed(2)}`} />
+                    <TickerItem icon="T" color="text-orange-500" label="TIA Price" value={`$${formatSmartNumber(marketData.tiaPrice)}`} />
                     <TickerItem
                         icon="⛽"
                         label="ETH Base Fee"
-                        value={`${formatGwei(marketData.ethBaseFee)} gwei`}
+                        value={`${customEthBaseFee || formatGwei(marketData.ethBaseFee)} gwei`}
                     />
-                    <TickerItem icon="🔥" label="TIA Gas" value={`${marketData.tiaGasPrice} utia`} />
+                    <TickerItem
+                        icon="🔮"
+                        color="text-purple-400"
+                        label="Blob Base Fee"
+                        value={`${formatSmartNumber(marketData.blobMarketPrice / 1e9)} gwei`}
+                    />
+                    <TickerItem icon="🔥" label="TIA Gas" value={`${formatSmartNumber(marketData.tiaGasPrice)} utia`} />
                 </div>
 
                 {/* Presets */}
@@ -237,6 +289,24 @@ export default function Home() {
                                         onChange={(e) => setDataSize(Number(e.target.value))}
                                         className="w-full"
                                     />
+                                </div>
+
+                                <div>
+                                    <label className="text-sm text-stone-400 mb-2 block">ETH Base Fee: {customEthBaseFee.toFixed(2)} Gwei</label>
+                                    <input
+                                        type="range"
+                                        min="0.1"
+                                        max="100"
+                                        step="0.1"
+                                        value={customEthBaseFee || Number(formatGwei(marketData.ethBaseFee))}
+                                        onChange={(e) => setCustomEthBaseFee(Number(e.target.value))}
+                                        className="w-full accent-amber-500"
+                                    />
+                                    <div className="flex justify-between text-xs text-stone-500 mt-1">
+                                        <span>Idle (1)</span>
+                                        <span>Normal (15)</span>
+                                        <span>Busy (50+)</span>
+                                    </div>
                                 </div>
 
                                 <div className="pt-4 border-t border-stone-800">
